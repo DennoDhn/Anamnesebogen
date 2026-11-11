@@ -20,5 +20,15 @@ document.getElementById('whatsapp').onclick=()=>{if(!current)return;window.locat
 document.getElementById('share').onclick=async()=>{if(!current)return;try{if(navigator.share)await navigator.share({title:'Fremdeinschätzung',text:message()});else window.location.href='https://wa.me/?text='+encodeURIComponent(message())}catch(e){if(e.name!=='AbortError')alert('Teilen nicht verfügbar. Bitte Text kopieren.')}};
 document.getElementById('copy').onclick=async()=>{if(!current)return;try{await navigator.clipboard.writeText(message());alert('Kopiert. Bitte privat an den Empfänger senden.')}catch(e){document.getElementById('preview').parentElement.open=true;document.getElementById('preview').focus();document.getElementById('preview').select();alert('Bitte den markierten Antworttext über das Auswahlmenü kopieren.')}};
 document.getElementById('download').onclick=()=>{if(!current)return;let blob=new Blob([JSON.stringify(current,null,2)],{type:'application/json'});let url=URL.createObjectURL(blob);let a=document.createElement('a');a.href=url;a.download='fremdeinschaetzung-'+current.name.replace(/[^a-z0-9äöüß-]/gi,'-').slice(0,30)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+// Prevent repeated actions while a share/copy request is pending, plus a short tap cooldown.
+for(const id of ['whatsapp','share','copy','download']){
+ const button=document.getElementById(id), action=button.onclick;
+ let busy=false;
+ button.onclick=async()=>{
+  if(busy||!current)return;
+  busy=true;button.disabled=true;
+  try{await action()}finally{setTimeout(()=>{busy=false;button.disabled=false},800)}
+ };
+}
 update();
 </script></body></html>

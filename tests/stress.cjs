@@ -1,0 +1,22 @@
+const {JSDOM}=require(process.env.JSDOM_PATH||'jsdom');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..');let checks=0;const ok=(condition,label)=>{assert(condition,label);checks++};
+function dom(file){const d=new JSDOM(fs.readFileSync(root+'/'+file,'utf8'),{url:'https://example.com/',runScripts:'outside-only'});const w=d.window;w.HTMLElement.prototype.scrollIntoView=function(){};w.alert=()=>{};w.confirm=()=>true;w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){};if(file==='index.html')w.eval(w.document.querySelector('script').textContent);else w.eval(fs.readFileSync(root+'/evaluation.js','utf8'));return d}
+(async()=>{const d=dom('index.html'),w=d.window,$=id=>w.document.getElementById(id);const click=id=>$(id).click();const input=(id,text)=>{$(id).value=text;$(id).dispatchEvent(new w.Event('input'))};
+for(let i=0;i<5;i++)click('complete');ok(!$('error').hidden&&$('result').hidden,'empty form stays blocked');input('name','   ');click('complete');ok($('result').hidden,'whitespace name blocked');input('name','Änne & <Test>');
+for(let i=0;i<26;i++)for(let j=0;j<7;j++)w.document.querySelector(`input[name=q${i}][value="${j%4}"]`).click();
+ok(w.document.querySelectorAll('input:checked').length===26,'seven changes per question leave exactly one selection');
+for(let i=0;i<5;i++)click('complete');ok(!$('result').hidden,'five submit clicks succeed');ok(($('preview').value.match(/^\d+:/gm)||[]).length===26,'exactly 26 exported answers');ok(/52\/78/.test($('preview').value),'sum after 182 clicks correct');
+let shared=[],resolveShare;w.navigator.share=()=>{shared.push('share');return new Promise(r=>resolveShare=r)};
+for(let i=0;i<5;i++)click('share');console.log('Native share calls after five clicks:',shared.length);ok(shared.length===1,'only one native share dialog while pending');resolveShare();await new Promise(r=>setImmediate(r));
+let copied=[];w.navigator.clipboard={writeText:async text=>copied.push(text)};for(let i=0;i<5;i++)click('copy');await new Promise(r=>setImmediate(r));ok(copied.length===1,'copy succeeds');
+const message=$('preview').value;w.document.querySelector('input[name=q0][value="3"]').click();ok($('result').hidden,'changing a score hides old result');click('copy');ok(copied.length===1,'old result cannot be copied');click('complete');ok(/53\/78/.test($('preview').value),'updated sum');input('name','Other');ok($('result').hidden,'name change invalidates result');click('complete');ok($('preview').value.includes('Name: Other'),'new name exported');
+input('name','');click('complete');ok($('result').hidden,'name deletion blocks output');
+const e=dom('auswertung.html'),v=e.window,get=id=>v.document.getElementById(id);const add=text=>{get('text').value=text;get('add').click()};for(let i=0;i<5;i++)add(message);ok(get('table').children.length===1,'five imports create one record');
+for(const suffix of ['\n27: 9','\n1: 2','\n1: 1.5','\n0: 0','\n26: -1','\n2: 3junk','\nName: Other','\nUnknown: secret']){add(message+suffix);ok(get('table').children.length===1,'bad extra line rejected '+suffix)}
+for(const val of ['4','-1','1.5','NaN','Infinity','null','']){add(message.replace('1: 2','1: '+val));ok(get('table').children.length===1,'invalid score rejected '+val)}
+for(let i=0;i<100;i++){const sample=message.replace('Name: Änne & <Test>','Name: Person '+i).replace(/^\d+: [0-3]$/gm,line=>line.split(':')[0]+': '+i%4);add(sample)}ok(get('table').children.length===101,'100 distinct records accepted');ok(!get('table').querySelector('test'),'name rendered as text');
+get('persist').click();ok(JSON.parse(v.localStorage.getItem('fremdeinschaetzungen-v1')).length===101,'opt-in saves every record');get('persist').click();ok(v.localStorage.length===0,'opt-out clears storage');
+get('table').querySelector('button').click();ok(get('table').children.length===100,'delete removes one record');get('clear').click();ok(get('table').children.length===0,'clear removes everything');for(const id of ['json','csv','print'])ok(get(id).disabled,'empty action disabled '+id);
+await new Promise(r=>setTimeout(r,850));ok(!$('share').disabled&&!$('copy').disabled,'actions re-enabled after cooldown');
+console.log('PASS:',checks,'interaction and error-case checks, including 182 radio clicks and 100 unique imports.');d.window.close();e.window.close();})().catch(e=>{console.error(e);process.exitCode=1});
